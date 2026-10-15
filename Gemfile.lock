@@ -80,10 +80,10 @@ GEM
       logger
       prism (>= 1.6.0)
       tsort
-    rbsecp256k1 (6.0.0)
+    rbsecp256k1 (6.0.2)
       mini_portile2 (~> 2.8)
       pkg-config (~> 1.5)
-      rubyzip (~> 2.3)
+      rubyzip (~> 3.4)
     regexp_parser (2.11.3)
     require-hooks (0.2.3)
     rexml (3.4.4)
@@ -107,7 +107,7 @@ GEM
       rubocop (>= 1.75.0, < 2.0)
       rubocop-ast (>= 1.47.1, < 2.0)
     ruby-progressbar (1.13.0)
-    rubyzip (2.4.1)
+    rubyzip (3.4.0)
     scrypt (3.1.0)
       ffi-compiler (>= 1.0, < 2.0)
       rake (~> 13)
