@@ -231,6 +231,8 @@ module Mpp
       sig { params(env: T.untyped).returns(T::Hash[String, String]) }
       def mppx_scope(env)
         scope = T.let({}, T::Hash[String, String])
+        http_method = env["REQUEST_METHOD"]
+        scope["method"] = http_method if http_method.is_a?(String) && !http_method.empty?
         route = env["action_dispatch.route_uri_pattern"] || env["sinatra.route"] || env["roda.route"]
         route = route.split(" ", 2).last if route.is_a?(String) && route.match?(/\A[A-Z]+\s+/)
         scope["route"] = route if route.is_a?(String) && !route.empty?
