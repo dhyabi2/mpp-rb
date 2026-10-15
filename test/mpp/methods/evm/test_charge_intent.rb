@@ -160,6 +160,70 @@ class TestEvmCharge < Minitest::Test
     assert_instance_of Mpp::Challenge, result
   end
 
+  def test_route_binding_required_rejects_unbound_bodyless_payload
+    handler = required_binding_handler
+    challenge = handler.charge(nil, "0.01")
+    assert_nil challenge.digest
+    assert_nil challenge.opaque
+
+    stub_facilitator(transaction: "0xsettled")
+    result = nil
+    Mpp::Methods::Evm::Authorization.stub(:recover, PAYER) do
+      result = handler.charge(
+        nil,
+        "0.01",
+        payment_signature: encode_signature(x402_payload(challenge)),
+        url: URL,
+        http_method: "GET"
+      )
+    end
+
+    assert_instance_of Mpp::Challenge, result
+    assert_not_requested :post, "#{FACILITATOR}/verify"
+  end
+
+  def test_route_binding_required_accepts_route_bound_bodyless_payload
+    handler = required_binding_handler
+    stub_facilitator(transaction: "0xsettled")
+    challenge = handler.charge(nil, "0.01")
+    payload = route_bound_payload(challenge, http_method: "GET")
+
+    result = nil
+    Mpp::Methods::Evm::Authorization.stub(:recover, PAYER) do
+      result = handler.charge(nil, "0.01", payment_signature: encode_signature(payload), url: URL, http_method: "GET")
+    end
+
+    refute_instance_of Mpp::Challenge, result
+  end
+
+  def test_route_binding_required_rejects_route_bound_payload_for_other_resource
+    handler = required_binding_handler
+    challenge = handler.charge(nil, "0.01")
+    payload = route_bound_payload(challenge, http_method: "GET", resource_url: "https://api.example.com/other")
+
+    stub_facilitator(transaction: "0xsettled")
+    result = nil
+    Mpp::Methods::Evm::Authorization.stub(:recover, PAYER) do
+      result = handler.charge(nil, "0.01", payment_signature: encode_signature(payload), url: URL, http_method: "GET")
+    end
+
+    assert_instance_of Mpp::Challenge, result
+    assert_not_requested :post, "#{FACILITATOR}/verify"
+  end
+
+  def test_route_binding_resource_accepts_unbound_bodyless_payload
+    stub_facilitator(transaction: "0xsettled")
+    challenge = @handler.charge(nil, "0.01")
+    payload = x402_payload(challenge).except("resource")
+
+    result = nil
+    Mpp::Methods::Evm::Authorization.stub(:recover, PAYER) do
+      result = @handler.charge(nil, "0.01", payment_signature: encode_signature(payload), url: URL, http_method: "GET")
+    end
+
+    refute_instance_of Mpp::Challenge, result
+  end
+
   def test_successful_x402_payment_settles_via_facilitator
     stub_facilitator(transaction: "0xsettled")
     challenge = @handler.charge(nil, "0.01")
@@ -346,6 +410,28 @@ class TestEvmCharge < Minitest::Test
       "resource" => {"url" => resource_url},
       "x402Version" => 2
     }
+  end
+
+  def required_binding_handler
+    method = Mpp::Methods::Evm.charge(
+      currency: Mpp::Methods::Evm::Assets::BASE_SEPOLIA_USDC,
+      recipient: RECIPIENT,
+      x402: {facilitator: FACILITATOR, route_binding: :required}
+    )
+    Mpp::Server::MppHandler.new(method: method, realm: REALM, secret_key: SECRET)
+  end
+
+  def route_bound_payload(challenge, http_method:, resource_url: URL)
+    payload = x402_payload(challenge, resource_url: resource_url)
+    extensions = Mpp::X402::Server.route_extensions(challenge, http_method)
+    extensions[Mpp::X402::MPPX_EXTENSION_KEY]["info"]["nonce"] = "client-nonce"
+    payload["extensions"] = extensions
+    payload["payload"]["authorization"]["nonce"] = Mpp::X402::Server.route_nonce(
+      accepted: payload["accepted"],
+      resource: payload["resource"],
+      extensions: extensions
+    )
+    payload
   end
 
   def encode_signature(payload)

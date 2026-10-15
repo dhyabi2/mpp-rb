@@ -150,7 +150,7 @@ module Mpp
         route_bound = !client_nonce.nil?
         route_requires_binding = !challenge.digest.nil? || !challenge.opaque.nil?
 
-        if route_requires_binding && !route_bound && route_binding == :required
+        if !route_bound && route_binding == :required
           Kernel.raise Mpp::VerificationFailedError.new(reason: "x402 payment payload does not bind required route metadata")
         end
 
