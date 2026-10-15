@@ -40,6 +40,7 @@ module Mpp
     autoload :Tempo, "mpp/methods/tempo"
     autoload :Stripe, "mpp/methods/stripe"
     autoload :Evm, "mpp/methods/evm"
+    autoload :Nano, "mpp/methods/nano"
   end
 
   # Extensions namespace

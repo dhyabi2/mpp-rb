@@ -242,6 +242,41 @@ fee_payer: Mpp::Methods::Tempo::Account.from_key(ENV.fetch("FEE_PAYER_KEY"))
 relay: {url: "https://api.tempo.xyz", headers: -> { {"tempo-api-key" => ENV.fetch("TEMPO_API_KEY")} }}
 ```
 
+### Nano
+
+`Mpp::Methods::Nano.charge` implements the `nano` charge method
+([draft-nano-charge-00](https://github.com/tempoxyz/mpp-specs/pull/377)). The
+client publishes a send block and presents its hash; the server looks the hash
+up with one `block_info` call to a Nano node and requires a confirmed `send` to
+the challenged recipient. Amounts are given in XNO and issued in raw
+(1 XNO = 10^30 raw). Only the standard library is used.
+
+```ruby
+nano = Mpp::Methods::Nano.charge(
+  rpc_url: "http://127.0.0.1:7076", # your node; the default
+  store: shared_store               # consumed block hashes, kept indefinitely
+)
+server = Mpp.create(methods: [tempo, nano])
+
+# A Nano block has no memo, so the recipient binds the payment to the
+# challenge: name an address used for this order only, and the same one again
+# when the credential comes back.
+result = server.compose(
+  [tempo, {amount: "0.01"}],
+  [nano, {amount: "0.001", recipient: order.nano_address}]
+).call(authorization: env["HTTP_AUTHORIZATION"])
+```
+
+With `binding: "amount"` one recipient is shared and each challenge must use a
+unique amount (for example by varying its lowest raw digits); the sent amount
+must then match exactly. An unconfirmed block is refused without being consumed,
+so the client can retry the same credential. Pass `rpc:` (anything with
+`call(action, params) -> Hash`) to add authentication or use another transport.
+The node is trusted to report confirmation, so prefer one you operate.
+
+On the client, `Mpp::Methods::Nano::ClientMethod.new(send_payment: ->(amount:, recipient:, **) { ... })`
+calls your wallet to send `amount` raw to `recipient` and returns the block hash.
+
 ### Client
 
 ```ruby
@@ -353,6 +388,7 @@ npx mppx http://localhost:4567/paid
 | Tempo | Yes | Yes |
 | Stripe | Yes | Yes |
 | EVM (`evm.charge`, x402 exact) | No | Yes |
+| Nano (`nano.charge`) | Yes | Yes |
 
 Tempo charge transaction construction is implemented directly in Ruby. Runtime dependency: `keccak` (Tempo attribution memos). Optional dependencies: `eth` (account signing, EIP-3009 recovery) and `rlp` (fee payer envelope).
 
