@@ -72,7 +72,7 @@ class TestMiddleware < Minitest::Test
     pricing = ->(_env) { {amount: "1.00"} }
 
     # Get a challenge first
-    challenge = handler.charge(nil, "1.00", mppx_scope: {"resource" => "/resource"})
+    challenge = handler.charge(nil, "1.00", mppx_scope: {"method" => "GET", "resource" => "/resource"})
     assert_instance_of Mpp::Challenge, challenge
 
     # Build a valid credential
@@ -129,7 +129,7 @@ class TestMiddleware < Minitest::Test
 
     challenge = Mpp::Challenge.from_www_authenticate(headers["WWW-Authenticate"])
     assert_equal(
-      {"route" => "/paid/:id", "resource" => "/paid/one", "query" => "view=full"},
+      {"method" => "GET", "route" => "/paid/:id", "resource" => "/paid/one", "query" => "view=full"},
       challenge.request["_mppx_scope"]
     )
     credential = Mpp::Credential.new(
@@ -150,6 +150,38 @@ class TestMiddleware < Minitest::Test
     refute headers.key?("Payment-Receipt")
   end
 
+  def test_single_handler_binds_credentials_to_http_method
+    assert_credentials_bound_to_http_method(:single)
+  end
+
+  def test_implicit_compose_handler_binds_credentials_to_http_method
+    assert_credentials_bound_to_http_method(:implicit_compose)
+  end
+
+  def test_explicit_compose_handler_binds_credentials_to_http_method
+    assert_credentials_bound_to_http_method(:explicit_compose)
+  end
+
+  def test_rejects_credential_without_http_method_in_scope
+    handler = mock_handler { flunk "Unbound credential must not reach payment verification" }
+    challenge = handler.charge(nil, "1.00", mppx_scope: {"resource" => "/resource"})
+    credential = Mpp::Credential.new(
+      challenge: challenge.to_echo, payload: {"type" => "test", "data" => "ok"}
+    )
+    middleware = Mpp::Server::Middleware.new(
+      ->(_env) { flunk "Unbound credential must not reach the app" },
+      handler: handler,
+      pricing: ->(_env) { {amount: "1.00"} }
+    )
+
+    status, headers, _body = middleware.call(minimal_env.merge("HTTP_AUTHORIZATION" => credential.to_authorization))
+
+    assert_equal 402, status
+    refute headers.key?("Payment-Receipt")
+    replacement = Mpp::Challenge.from_www_authenticate(headers["WWW-Authenticate"])
+    assert_equal "GET", replacement.request.dig("_mppx_scope", "method")
+  end
+
   def test_normalizes_method_prefixed_sinatra_route_scope
     handler = mock_handler
     pricing = ->(_env) { {amount: "1.00"} }
@@ -167,7 +199,7 @@ class TestMiddleware < Minitest::Test
     assert_equal 402, status
     challenge = Mpp::Challenge.from_www_authenticate(headers["WWW-Authenticate"])
     assert_equal(
-      {"route" => "/paid/:id", "resource" => "/paid/one", "query" => "view=full"},
+      {"method" => "GET", "route" => "/paid/:id", "resource" => "/paid/one", "query" => "view=full"},
       challenge.request["_mppx_scope"]
     )
   end
@@ -333,7 +365,7 @@ class TestMiddleware < Minitest::Test
     assert_equal 402, status
     challenge = Mpp::Challenge.from_www_authenticate(Array(headers["WWW-Authenticate"]).first)
     assert_equal(
-      {"route" => "/paid/:id", "resource" => "/paid/one", "query" => "view=full"},
+      {"method" => "GET", "route" => "/paid/:id", "resource" => "/paid/one", "query" => "view=full"},
       challenge.request["_mppx_scope"]
     )
     credential = Mpp::Credential.new(
@@ -353,7 +385,7 @@ class TestMiddleware < Minitest::Test
   def test_varies_on_payment_signature_for_x402_success
     handler = mock_handler
     pricing = ->(_env) { {amount: "1.00"} }
-    challenge = handler.charge(nil, "1.00", mppx_scope: {"resource" => "/resource"})
+    challenge = handler.charge(nil, "1.00", mppx_scope: {"method" => "GET", "resource" => "/resource"})
     credential = Mpp::Credential.new(
       challenge: challenge.to_echo,
       payload: {"type" => "test", "data" => "ok"}
@@ -376,7 +408,7 @@ class TestMiddleware < Minitest::Test
   def test_requires_auth_reads_payment_authorization_and_preserves_bearer
     handler = mock_handler(requires_auth: true)
     pricing = ->(_env) { {amount: "1.00"} }
-    challenge = handler.charge("Bearer app-token", "1.00", mppx_scope: {"resource" => "/resource"})
+    challenge = handler.charge("Bearer app-token", "1.00", mppx_scope: {"method" => "GET", "resource" => "/resource"})
     credential = Mpp::Credential.new(
       challenge: challenge.to_echo,
       payload: {"type" => "test", "data" => "ok"}
@@ -420,6 +452,55 @@ class TestMiddleware < Minitest::Test
     }
   end
 
+  def assert_credentials_bound_to_http_method(mode)
+    %w[GET HEAD].product(%w[PATCH PUT DELETE]).each do |quoted_method, submitted_method|
+      verifications = 0
+      invocations = 0
+      handler = mock_handler { verifications += 1 }
+      unless mode == :single
+        stripe = mock_named_method("stripe", "usd", "acct_123", decimals: 2)
+        handler = Mpp::Server::MppHandler.new(
+          methods: [handler.method, stripe], realm: @realm, secret_key: @secret_key
+        )
+        if mode == :explicit_compose
+          handler = handler.compose(*handler.methods.map { |method| [method, {amount: "1.00"}] })
+        end
+      end
+      app = lambda { |_env|
+        invocations += 1
+        [200, {}, ["OK"]]
+      }
+      middleware = Mpp::Server::Middleware.new(
+        app, handler: handler, pricing: ->(_env) { {amount: "1.00"} }
+      )
+      env = minimal_env.merge("REQUEST_METHOD" => quoted_method, "QUERY_STRING" => "view=full")
+      status, headers, _body = middleware.call(env)
+      assert_equal 402, status
+      challenge = Mpp::Challenge.from_www_authenticate(Array(headers["WWW-Authenticate"]).first)
+      credential = Mpp::Credential.new(
+        challenge: challenge.to_echo, payload: {"type" => "test", "data" => "ok"}
+      )
+      paid_env = env.merge("HTTP_AUTHORIZATION" => credential.to_authorization)
+
+      # Use the credential on the wrong operation before any successful use.
+      status, headers, _body = middleware.call(paid_env.merge("REQUEST_METHOD" => submitted_method))
+
+      assert_equal 402, status, "#{mode}: #{quoted_method} credential must not authorize #{submitted_method}"
+      assert_equal 0, verifications, "Method mismatch must be rejected before payment verification"
+      assert_equal 0, invocations, "Method mismatch must be rejected before the app runs"
+      refute headers.key?("Payment-Receipt")
+      replacement = Mpp::Challenge.from_www_authenticate(Array(headers["WWW-Authenticate"]).first)
+      assert_equal submitted_method, replacement.request.dig("_mppx_scope", "method")
+
+      status, headers, _body = middleware.call(paid_env)
+
+      assert_equal 200, status
+      assert_equal 1, verifications
+      assert_equal 1, invocations
+      assert headers.key?("Payment-Receipt")
+    end
+  end
+
   def assert_vary_authorization(headers)
     vary_fields = headers.fetch("Vary", "").split(",").map do |field|
       field.strip.downcase
@@ -429,7 +510,7 @@ class TestMiddleware < Minitest::Test
 
   def call_paid(app, handler: mock_handler)
     pricing = ->(_env) { {amount: "1.00"} }
-    challenge = handler.charge(nil, "1.00", mppx_scope: {"resource" => "/resource"})
+    challenge = handler.charge(nil, "1.00", mppx_scope: {"method" => "GET", "resource" => "/resource"})
     credential = Mpp::Credential.new(
       challenge: challenge.to_echo,
       payload: {"type" => "test", "data" => "ok"}
@@ -438,8 +519,9 @@ class TestMiddleware < Minitest::Test
     middleware.call(minimal_env.merge("HTTP_AUTHORIZATION" => credential.to_authorization))
   end
 
-  def mock_handler(requires_auth: false)
+  def mock_handler(requires_auth: false, &on_verify)
     verify_fn = lambda { |credential, _request|
+      on_verify&.call
       Mpp::Receipt.success("ref-#{credential.challenge.id[0..7]}")
     }
     intent = Mpp::Server::FunctionalIntent.new("charge", &verify_fn)
