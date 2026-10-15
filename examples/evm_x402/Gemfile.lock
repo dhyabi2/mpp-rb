@@ -1,0 +1,112 @@
+PATH
+  remote: ../..
+  specs:
+    mpp-rb (0.1.8)
+      base64 (~> 0.3)
+      keccak (~> 1.3)
+      sorbet-runtime
+
+GEM
+  remote: https://rubygems.org/
+  specs:
+    base64 (0.3.0)
+    bigdecimal (4.1.3)
+    bls12-381 (0.4.0)
+      bigdecimal
+      h2c (>= 0.2.1, < 0.3)
+    dotenv (3.2.0)
+    ecdsa (1.2.0)
+    eth (0.5.18)
+      base64 (~> 0.1)
+      bigdecimal (>= 3.1, < 5.0)
+      bls12-381 (~> 0.3)
+      forwardable (~> 1.3)
+      httpx (~> 1.6)
+      keccak (~> 1.3)
+      konstructor (~> 1.0)
+      openssl (~> 3.3)
+      rbsecp256k1 (~> 6.0)
+      scrypt (~> 3.0)
+    ffi (1.17.4)
+    ffi (1.17.4-aarch64-linux-gnu)
+    ffi (1.17.4-aarch64-linux-musl)
+    ffi (1.17.4-arm-linux-gnu)
+    ffi (1.17.4-arm-linux-musl)
+    ffi (1.17.4-arm64-darwin)
+    ffi (1.17.4-x86-linux-gnu)
+    ffi (1.17.4-x86-linux-musl)
+    ffi (1.17.4-x86_64-darwin)
+    ffi (1.17.4-x86_64-linux-gnu)
+    ffi (1.17.4-x86_64-linux-musl)
+    ffi-compiler (1.4.2)
+      ffi (>= 1.15.5)
+      rake
+    forwardable (1.4.0)
+    h2c (0.2.1)
+      ecdsa (~> 1.2.0)
+    http-2 (1.3.0)
+    httpx (1.9.0)
+      http-2 (>= 1.2.0)
+    keccak (1.3.3)
+    konstructor (1.0.2)
+    logger (1.7.0)
+    mini_portile2 (2.8.9)
+    mustermann (3.1.1)
+    nio4r (2.7.5)
+    openssl (3.3.3)
+    pkg-config (1.6.5)
+    puma (8.0.2)
+      nio4r (~> 2.0)
+    rack (3.2.7)
+    rack-protection (4.2.1)
+      base64 (>= 0.1.0)
+      logger (>= 1.6.0)
+      rack (>= 3.0.0, < 4)
+    rack-session (2.1.2)
+      base64 (>= 0.1.0)
+      rack (>= 3.0.0)
+    rackup (2.3.1)
+      rack (>= 3)
+    rake (13.4.2)
+    rbsecp256k1 (6.0.2)
+      mini_portile2 (~> 2.8)
+      pkg-config (~> 1.5)
+      rubyzip (~> 3.4)
+    rubyzip (3.7.0)
+    scrypt (3.1.0)
+      ffi-compiler (>= 1.0, < 2.0)
+      rake (~> 13)
+    sinatra (4.2.1)
+      logger (>= 1.6.0)
+      mustermann (~> 3.0)
+      rack (>= 3.0.0, < 4)
+      rack-protection (= 4.2.1)
+      rack-session (>= 2.0.0, < 3)
+      tilt (~> 2.0)
+    sorbet-runtime (0.6.13558)
+    tilt (2.9.0)
+
+PLATFORMS
+  aarch64-linux-gnu
+  aarch64-linux-musl
+  arm-linux-gnu
+  arm-linux-musl
+  arm64-darwin
+  ruby
+  x86-linux-gnu
+  x86-linux-musl
+  x86_64-darwin
+  x86_64-linux-gnu
+  x86_64-linux-musl
+
+DEPENDENCIES
+  dotenv
+  eth
+  mpp-rb!
+  puma
+  rackup
+  sinatra
+  sorbet-runtime
+
+BUNDLED WITH
+   2.5.4
