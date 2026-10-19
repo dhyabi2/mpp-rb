@@ -221,6 +221,7 @@ module Mpp
 
             receipt_data = fetch_transaction_receipt(rpc_url, reserved_tx_hash)
             verify_transaction_receipt!(receipt_data, request, credential: credential)
+            claim_settlement!(reserved_tx_hash)
             @store.put(store_key, TRANSACTION_VERIFIED)
             return Mpp::Receipt.success(reserved_tx_hash)
           end
@@ -241,6 +242,7 @@ module Mpp
             if transaction_submission_may_have_succeeded?(e)
               receipt_data = fetch_transaction_receipt(rpc_url, reserved_tx_hash)
               verify_transaction_receipt!(receipt_data, request, credential: credential)
+              claim_settlement!(reserved_tx_hash)
               @store.put(store_key, TRANSACTION_VERIFIED)
               return Mpp::Receipt.success(reserved_tx_hash)
             end
@@ -260,14 +262,24 @@ module Mpp
           # claim until verification finishes so a concurrent retry cannot
           # rebroadcast the same payload.
           raw_store_key = store_key
+          raw_tx_hash = reserved_tx_hash
           store_key, reserved_tx_hash = rebase_reservation_to_chain_hash(store_key, reserved_tx_hash, tx_hash)
 
           receipt_data = fetch_transaction_receipt(rpc_url, reserved_tx_hash)
           verify_transaction_receipt!(receipt_data, request, credential: credential)
+          claim_settlement!(raw_tx_hash, reserved_tx_hash)
           @store.put(store_key, TRANSACTION_VERIFIED)
           @store.put(raw_store_key, TRANSACTION_VERIFIED) if raw_store_key != store_key
 
           Mpp::Receipt.success(reserved_tx_hash)
+        end
+
+        def claim_settlement!(*tx_hashes)
+          tx_hashes.map(&:downcase).uniq.each do |tx_hash|
+            unless @store.put_if_absent("mpp:charge:settled:#{tx_hash}", true)
+              raise Mpp::VerificationError, "Transaction hash already used"
+            end
+          end
         end
 
         def transaction_submission_may_have_succeeded?(error)

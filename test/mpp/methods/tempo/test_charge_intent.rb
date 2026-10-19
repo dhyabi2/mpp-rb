@@ -250,6 +250,89 @@ class TestTempoChargeIntent < Minitest::Test
     assert_equal Mpp::Methods::Tempo::TRANSACTION_PENDING, store.get("mpp:charge:#{tx_hash.downcase}")
   end
 
+  def test_concurrent_pending_retry_settles_only_once
+    raw_tx = "0xabcdef1234567890"
+    tx_hash = raw_transaction_hash(raw_tx)
+    challenge_id = "challenge-123"
+    memo = Mpp::Methods::Tempo::Attribution.encode(
+      server_id: REALM,
+      challenge_id: challenge_id
+    )
+    receipt_data = receipt([transfer_log(memo: memo)])
+    store = Mpp::MemoryStore.new
+    intent = Mpp::Methods::Tempo::ChargeIntent.new(rpc_url: "https://rpc.example.test", store: store)
+    credential = transaction_credential(raw_tx, challenge_id: challenge_id)
+    concurrent_result = nil
+    raced = false
+    calls = []
+
+    Mpp::Methods::Tempo::Rpc.stub(:call, ->(_rpc_url, method, params) {
+      calls << [method, params]
+
+      case method
+      when "eth_sendRawTransaction"
+        tx_hash
+      when "eth_getTransactionReceipt"
+        unless raced
+          raced = true
+          concurrent_result = intent.verify(credential, request_hash)
+        end
+        receipt_data
+      else
+        raise "unexpected RPC method: #{method}"
+      end
+    }) do
+      error = assert_raises(Mpp::VerificationError) do
+        intent.verify(credential, request_hash)
+      end
+      assert_match(/Transaction hash already used/, error.message)
+    end
+
+    assert_equal tx_hash, concurrent_result.reference
+    assert_equal 1, calls.map(&:first).count("eth_sendRawTransaction")
+  end
+
+  def test_concurrent_transactions_rebased_to_same_chain_hash_settle_only_once
+    raw_tx = "0xabcdef1234567890"
+    other_raw_tx = "0xabcdef1234567891"
+    chain_hash = "0x#{"12" * 32}"
+    challenge_id = "challenge-123"
+    memo = Mpp::Methods::Tempo::Attribution.encode(
+      server_id: REALM,
+      challenge_id: challenge_id
+    )
+    receipt_data = receipt([transfer_log(memo: memo)])
+    store = Mpp::MemoryStore.new
+    intent = Mpp::Methods::Tempo::ChargeIntent.new(rpc_url: "https://rpc.example.test", store: store)
+    credential = transaction_credential(raw_tx, challenge_id: challenge_id)
+    other_credential = transaction_credential(other_raw_tx, challenge_id: challenge_id)
+    concurrent_result = nil
+    raced = false
+
+    Mpp::Methods::Tempo::Rpc.stub(:call, ->(_rpc_url, method, params) {
+      case method
+      when "eth_sendRawTransaction"
+        chain_hash
+      when "eth_getTransactionReceipt"
+        assert_equal [chain_hash], params
+        unless raced
+          raced = true
+          concurrent_result = intent.verify(other_credential, request_hash)
+        end
+        receipt_data
+      else
+        raise "unexpected RPC method: #{method}"
+      end
+    }) do
+      error = assert_raises(Mpp::VerificationError) do
+        intent.verify(credential, request_hash)
+      end
+      assert_match(/Transaction hash already used/, error.message)
+    end
+
+    assert_equal chain_hash, concurrent_result.reference
+  end
+
   def test_transaction_credential_recovers_receipt_after_ambiguous_broadcast_error
     raw_tx = "0xabcdef1234567890"
     tx_hash = raw_transaction_hash(raw_tx)
