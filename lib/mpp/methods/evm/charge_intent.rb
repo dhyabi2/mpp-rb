@@ -136,7 +136,7 @@ module Mpp
         end
 
         def x402_credential?(credential)
-          credential.payload.is_a?(Hash) && credential.payload["_x402"] == true
+          credential.is_a?(X402Credential)
         end
 
         def addresses_equal?(left, right)

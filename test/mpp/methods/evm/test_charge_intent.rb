@@ -239,7 +239,8 @@ class TestEvmCharge < Minitest::Test
     credential, receipt = result
     assert_equal "evm", receipt.method
     assert_equal "0xsettled", receipt.reference
-    assert credential.payload["_x402"]
+    assert_instance_of Mpp::Methods::Evm::X402Credential, credential
+    refute credential.payload.key?("_x402")
 
     headers = {}
     @method.decorate_receipt(headers, receipt, credential, payment_signature: signature)
@@ -280,6 +281,28 @@ class TestEvmCharge < Minitest::Test
     end
 
     assert_instance_of Mpp::Challenge, result
+  end
+
+  def test_native_credential_cannot_forge_x402_marker_to_skip_nonce_binding
+    expires = Time.now.utc + 300
+    _challenge_a, credential_a = native_credential(@handler.charge(nil, "0.01", expires: expires.iso8601(3)))
+    challenge_b = @handler.charge(nil, "0.01", expires: (expires + 1).iso8601(3))
+    refute_equal Mpp::Methods::Evm::Authorization.challenge_hash(challenge_b.to_echo), credential_a.payload["nonce"]
+    forged = Mpp::Credential.new(
+      challenge: challenge_b.to_echo,
+      payload: credential_a.payload.merge("_x402" => true)
+    )
+    stub_facilitator(transaction: "0xsettled")
+
+    Mpp::Methods::Evm::Authorization.stub(:recover, PAYER) do
+      error = assert_raises(Mpp::VerificationFailedError) do
+        @handler.charge(forged.to_authorization, "0.01")
+      end
+      assert_match(/challenge hash mismatch/, error.message)
+    end
+
+    assert_not_requested :post, "#{FACILITATOR}/verify"
+    assert_not_requested :post, "#{FACILITATOR}/settle"
   end
 
   def test_compose_flattens_x402_accepts
@@ -375,8 +398,7 @@ class TestEvmCharge < Minitest::Test
 
   private
 
-  def native_credential
-    challenge = @handler.charge(nil, "0.01")
+  def native_credential(challenge = @handler.charge(nil, "0.01"))
     auth = x402_payload(challenge).fetch("payload")
     payload = auth.fetch("authorization").merge(
       "type" => "authorization", "signature" => auth.fetch("signature"),

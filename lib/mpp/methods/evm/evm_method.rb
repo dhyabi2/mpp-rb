@@ -99,9 +99,9 @@ module Mpp
             http_method: http_method
           )
           echo = challenge.to_echo
-          Mpp::Credential.new(
+          X402Credential.new(
             challenge: echo,
-            payload: authorization.merge("_x402" => true),
+            payload: authorization,
             source: source_for(authorization["from"])
           )
         end
